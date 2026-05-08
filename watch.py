@@ -208,19 +208,21 @@ def main():
 
         page = context.new_page()
 
-        # ----- 打开浏览器，让用户操作 -----
+        # ----- 打开空白浏览器，让用户完全手动操作 -----
         print()
         log("=" * 55)
-        log("浏览器已打开 👇")
+        log("浏览器已打开（空白页）👇")
         log("")
-        log("  1. 打开 https://www.zhipin.com")
-        log("  2. 用微信/App 扫码登录")
-        log("  3. 正常搜索岗位（任意关键词、翻页）")
+        log("  1. 在地址栏输入 https://www.zhipin.com/hangzhou/")
+        log("  2. 手动登录（点"登录"→ 扫码）")
+        log("  3. 搜索岗位，比如"外贸业务员"")
         log("")
-        log("  ⏎  登录完成后，回终端按 Enter 启动监看...")
+        log("  ⏎  登录 + 搜索完成后，回终端按 Enter 启动监看...")
         log("=" * 55)
 
-        page.goto("https://www.zhipin.com/", wait_until="commit")
+        # 不执行任何导航，打开空白页
+        # 用户自己在浏览器里操作，彻底避免脚本导航导致闪退
+        page.goto("about:blank")
         input()
 
         # 保存 Cookie
