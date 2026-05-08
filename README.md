@@ -2,45 +2,57 @@
 
 基于 Playwright 的 BOSS 直聘招聘数据采集 + 技能需求分析工具。
 
+## 两种使用方式
+
+### 方式一：书签脚本（最简单，推荐新手）
+
+[点这里查看详细安装步骤](./BOOKMARKLET.md)
+
+> 拖一个书签到浏览器 → 在 BOSS 页面点一下 → 自动下载 JSON
+
+无需安装 Python，无需任何配置。
+
+### 方式二：Python 爬虫（自动翻页）
+
+```bash
+pip install -r requirements.txt
+playwright install chromium
+python scraper.py
+```
+
+浏览器打开后，**手动登录 BOSS 直聘**，回到终端按 Enter，脚本自动爬取所有关键词和页数。
+
+---
+
 ## 功能
 
 - **爬取**：自动搜索多个关键词 + 多城市 + 多页的岗位信息
 - **分析**：提取 JD 中的技能关键词，生成词云和技能需求排行榜
 - **对比**：跨期对比技能需求变化（新增/消失的技能）
-- **定时**：可配置每周自动运行，追踪市场趋势
 
 ## 快速开始
 
 ### 1. 环境准备
 
 ```bash
-# 安装 Python 依赖
 pip install -r requirements.txt
-
-# 安装 Playwright 浏览器（首次运行）
 playwright install chromium
 ```
 
-### 2. 首次运行（需要扫码登录）
+### 2. 运行爬虫
 
 ```bash
 python scraper.py
 ```
 
-这会弹出一个浏览器窗口，你用 **微信** 或 **BOSS 直聘 App** 扫码登录即可。
-登录成功后 Cookie 会被保存，下次运行不再需要扫码。
+脚本会弹出一个浏览器窗口，**你自己手动登录 BOSS 直聘**：
+1. 在浏览器里打开 https://www.zhipin.com
+2. 用微信或 App 扫码登录
+3. 登录成功后，回到终端按 **Enter 键**
 
-> **重要**：首次登录时如果 BOSS 弹出验证码，手动完成验证即可。系统检测到登录成功后会自动继续。
+之后脚本会自动搜索所有关键词并保存数据。
 
-### 3. 后续运行
-
-登录完成后，爬虫会自动复用 Cookie：
-
-```bash
-python scraper.py           # 爬取最新数据
-python analyze.py           # 分析最新数据
-bash run.sh                 # 一条命令完成爬取 + 分析
-```
+> 首次运行后 Cookie 会被保存，下次可以直接扫码登录或者继续使用已有登录态。
 
 ### 4. 查看结果
 
