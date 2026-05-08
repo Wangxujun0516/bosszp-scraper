@@ -83,21 +83,44 @@ def wait_for_login(page, timeout_seconds=300):
     等待用户在浏览器中完成扫码登录。
     检测到页面跳转到招聘列表页即认为登录成功。
     """
+    # 先输出当前页面信息，方便调试
+    current_url = page.url
+    log(f"当前页面: {current_url}")
+
+    # 尝试检查页面上是否有二维码或登录表单
+    try:
+        page_title = page.title()
+        body_preview = page.inner_text("body")[:200] if page.query_selector("body") else "(空)"
+        log(f"页面标题: {page_title}")
+        log(f"页面内容预览: {body_preview[:100]}...")
+    except Exception as e:
+        log(f"页面分析失败: {e}")
+
     log("=" * 50)
     log("请在弹出的浏览器窗口中完成扫码登录")
     log("（用微信或 BOSS 直聘 App 扫二维码）")
     log(f"等待登录，最长等待 {timeout_seconds} 秒...")
     log("=" * 50)
 
+    last_status_log = time.time()
     start = time.time()
     while time.time() - start < timeout_seconds:
         current_url = page.url
-        if "/web/geek/job" in current_url or "/web/chat" in current_url:
-            log("登录成功！")
-            return True
+
+        # 每30秒输出一次状态，避免干等
+        elapsed = int(time.time() - start)
+        if time.time() - last_status_log >= 30:
+            log(f"仍在等待... (已等待 {elapsed} 秒，当前页面: {current_url[:100]})")
+            last_status_log = time.time()
+
+        # 登录成功的检测条件
         if "/web/geek/" in current_url:
             log("登录成功！")
             return True
+        if "/web/chat" in current_url:
+            log("登录成功！")
+            return True
+
         time.sleep(2)
 
     log("登录超时。请重新运行脚本再次尝试。")
@@ -138,7 +161,22 @@ def handle_login_if_needed(page, context):
         return True
 
     log("检测到未登录，引导扫码...")
-    safe_goto(page, "https://www.zhipin.com/web/user/?ka=header-login")
+
+    # 如果已经在登录页，直接等扫码；否则导航过去
+    current = page.url
+    if "passport" not in current and "login" not in current:
+        try:
+            page.goto(
+                "https://www.zhipin.com/web/user/?ka=header-login",
+                wait_until="domcontentloaded",
+                timeout=cfg.BROWSER_TIMEOUT,
+            )
+        except Exception as e:
+            log(f"  导航到登录页异常: {type(e).__name__}，检查当前页面...")
+
+    # 再检查一次当前页面状态
+    time.sleep(3)
+
     if wait_for_login(page):
         save_cookies(context)
         return True
