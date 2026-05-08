@@ -94,11 +94,12 @@ def get_stats(conn):
 
 EXTRACT_JS = """
 () => {
+    // 不认 URL，只看页面有没有岗位卡片
     const cards = document.querySelectorAll('.job-card-wrapper');
     if (!cards.length) return [];
     
     const results = [];
-    const url = window.location.href;
+    const pageUrl = window.location.href;
     const kw = new URLSearchParams(window.location.search).get('query') || '';
     
     cards.forEach(card => {
@@ -129,7 +130,7 @@ EXTRACT_JS = """
             
             if (job.title) {
                 job.keyword = decodeURIComponent(kw);
-                job.page_url = url;
+                job.page_url = pageUrl;
                 results.push(job);
             }
         } catch(e) {}
@@ -249,8 +250,9 @@ def main():
             while True:
                 current_url, title = get_page_info(page)
 
-                # 只在搜索结果页扫描（URL 包含 /web/geek/）
-                if "/web/geek/" in current_url and "job" in current_url:
+                # 🛡️ 不限制 URL 格式——只要有岗位卡片就读
+                # 兼容 /web/geek/job?city=... 和 /hangzhou/jobs?query=... 等格式
+                if "zhipin.com" in current_url:
                     # 读取岗位数据
                     jobs = read_page_jobs(page)
 
