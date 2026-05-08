@@ -106,6 +106,45 @@ def wait_for_login(page, timeout_seconds=300):
 
 # ---------- 核心爬取逻辑 ----------
 
+def safe_goto(page, url):
+    """安全导航，处理登录重定向和中断"""
+    try:
+        resp = page.goto(url, wait_until="commit", timeout=cfg.BROWSER_TIMEOUT)
+        # 等待页面稳定
+        page.wait_for_load_state("networkidle", timeout=15000)
+        return resp
+    except Exception as e:
+        log(f"  导航异常: {type(e).__name__}")
+        return None
+
+
+def is_logged_out(page):
+    """检测是否被重定向到登录页"""
+    current = page.url
+    if "passport" in current or "login" in current or "user" in current:
+        return True
+    # 检查是否有登录表单元素
+    try:
+        if page.query_selector(".passport-form"):
+            return True
+    except:
+        pass
+    return False
+
+
+def handle_login_if_needed(page, context):
+    """检测登录状态，需要时引导用户扫码"""
+    if not is_logged_out(page):
+        return True
+
+    log("检测到未登录，引导扫码...")
+    safe_goto(page, "https://www.zhipin.com/web/user/?ka=header-login")
+    if wait_for_login(page):
+        save_cookies(context)
+        return True
+    return False
+
+
 def search_jobs(page, keyword, city_code, max_pages):
     """搜索指定关键词和城市的岗位，返回岗位列表"""
     jobs = []
@@ -115,7 +154,12 @@ def search_jobs(page, keyword, city_code, max_pages):
         f"?city={city_code}&query={keyword}"
     )
     log(f"搜索: [{keyword}] 城市码: {city_code}")
-    page.goto(url, wait_until="domcontentloaded", timeout=cfg.BROWSER_TIMEOUT)
+    safe_goto(page, url)
+
+    # 如果被重定向到登录页
+    if is_logged_out(page):
+        log(f"  登录态已失效，跳过该搜索")
+        return jobs
 
     # 等待搜索结果容器加载
     try:
@@ -323,33 +367,12 @@ def main():
 
         # --- 第一步：检查登录状态 ---
         log("检查登录状态...")
-        page.goto(
-            "https://www.zhipin.com/web/geek/job",
-            wait_until="domcontentloaded",
-            timeout=cfg.BROWSER_TIMEOUT,
-        )
+        safe_goto(page, "https://www.zhipin.com/web/geek/job")
         time.sleep(3)
 
-        # 判断是否需要登录
-        need_login = False
-        try:
-            login_indicator = page.query_selector(".passport-form")
-            if login_indicator:
-                need_login = True
-        except:
-            need_login = True
-
-        if need_login:
-            log("检测到未登录，引导扫码...")
-            page.goto(
-                "https://www.zhipin.com/web/user/?ka=header-login",
-                wait_until="domcontentloaded",
-            )
-            if wait_for_login(page):
-                save_cookies(context)
-            else:
-                browser.close()
-                sys.exit(1)
+        if not handle_login_if_needed(page, context):
+            browser.close()
+            sys.exit(1)
 
         # --- 第二步：执行搜索 ---
         all_jobs = []
