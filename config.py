@@ -33,7 +33,8 @@ NATIONWIDE_CODE = "100010000"  # 全国
 
 # ===== 搜索参数 =====
 PAGE_SIZE = 30         # 每页数量（最大30）
-MAX_PAGES = 3          # 每个关键词最多爬取页数
+MAX_PAGES = 2          # 每个关键词最多爬取页数（安全值2，不超过3）
+SKIP_KEYWORDS_RANDOMLY = True   # 随机跳过一部分关键词，避免每次都搜完全部
 
 # ===== 输出 =====
 OUTPUT_DIR = "data"
@@ -41,10 +42,41 @@ OUTPUT_FILE_PREFIX = "bosszp_jobs"
 
 # ===== 浏览器设置 =====
 HEADLESS = False       # 首次登录设为 False，登录成功后可以改成 True
-BROWSER_TIMEOUT = 30000  # 毫秒
+BROWSER_TIMEOUT = 45000  # 毫秒
 COOKIE_FILE = "cookies.json"
 
-# ===== 反爬设置 =====
-PAGE_DELAY_MIN = 2     # 翻页间隔最少秒数
-PAGE_DELAY_MAX = 4     # 翻页间隔最多秒数
-SEARCH_DELAY = 3       # 切换关键词的间隔秒数
+# ===== 🛡️ 反爬/防封设置 =====
+
+# 页面操作间隔（秒）— 随机值在 min~max 之间
+PAGE_DELAY_MIN = 3     # 翻页间隔最少秒数
+PAGE_DELAY_MAX = 6     # 翻页间隔最多秒数
+SEARCH_DELAY_MIN = 4   # 切换关键词最少间隔
+SEARCH_DELAY_MAX = 8   # 切换关键词最多间隔
+
+# 登录后等待时间（秒）— 登录后先"装一会儿"再开始搜
+POST_LOGIN_IDLE_MIN = 3
+POST_LOGIN_IDLE_MAX = 8
+
+# 每次运行最大操作次数 — 到达后自动退出，避免单次会话过久
+MAX_OPS_PER_SESSION = 60   # 约等于 60 次页面操作
+
+# 防检测：每次运行随机化 viewport 尺寸
+VIEWPORT_WIDTHS = [1200, 1280, 1366, 1400, 1440, 1536]
+VIEWPORT_HEIGHTS = [700, 768, 800, 900]
+
+# 检测到验证码/封禁提示后自动停止
+CAPTCHA_KEYWORDS = [
+    "安全验证",
+    "您的IP地址存在异常行为",
+    "访问受限",
+    "请完成验证",
+    "请输入验证码",
+    "滑块验证",
+    "verify",
+    "captcha",
+]
+
+# ⏰ 时段限制：只在合理时段运行（北京时间 8:00~22:00）
+# 防止凌晨/半夜操作被标记为异常
+HOUR_START = 8
+HOUR_END = 22

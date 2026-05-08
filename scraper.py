@@ -17,6 +17,20 @@ from pathlib import Path
 
 import config as cfg
 
+# ---------- 操作计数器 ----------
+
+_op_count = 0
+
+def count_op():
+    """每次页面操作 +1，超过上限自动退出"""
+    global _op_count
+    _op_count += 1
+    if _op_count > cfg.MAX_OPS_PER_SESSION:
+        log(f"🛑 已达单次最大操作数 ({cfg.MAX_OPS_PER_SESSION})，自动退出")
+        return False
+    return True
+
+
 # ---------- 工具函数 ----------
 
 def log(msg):
@@ -37,6 +51,72 @@ def save_json(data, filepath):
     log(f"已保存 {len(data)} 条记录 → {filepath}")
 
 
+# ---------- 🛡️ 防封检测 ----------
+
+def check_time_of_day():
+    """时段限制：非合理时段直接退出"""
+    now = datetime.now()
+    hour = now.hour
+    if hour < cfg.HOUR_START or hour >= cfg.HOUR_END:
+        log(f"🛑 当前时间 {now.strftime('%H:%M')} 不在允许的时段内 ({cfg.HOUR_START}:00~{cfg.HOUR_END}:00)")
+        log("   修改 config.py 中的 HOUR_START / HOUR_END 可调整")
+        return False
+    return True
+
+
+def is_captcha_page(page):
+    """检测是否遇到验证码/封禁页面"""
+    try:
+        body = page.inner_text("body")[:500].lower()
+        page_url = page.url.lower()
+        combined = body + " " + page_url
+
+        for kw in cfg.CAPTCHA_KEYWORDS:
+            if kw.lower() in combined:
+                log(f"🛑 检测到验证码/封禁: '{kw}'")
+                return True
+    except:
+        pass
+    return False
+
+
+# ---------- 🛡️ 模拟真人操作 ----------
+
+def human_scroll(page):
+    """模拟真人滚动页面（随机滚动一段）"""
+    try:
+        # 随机滚 1~3 次
+        for _ in range(random.randint(1, 3)):
+            scroll_y = random.randint(200, 600)
+            page.evaluate(f"window.scrollBy(0, {scroll_y})")
+            time.sleep(random.uniform(0.3, 1.0))
+        # 滚回到顶部附近（模拟看完往下翻后又回去）
+        page.evaluate(f"window.scrollTo(0, {random.randint(0, 100)})")
+    except:
+        pass
+
+
+def random_mouse_move(page):
+    """模拟鼠标随机移动（在页面不同位置）"""
+    try:
+        w, h = 1400, 900
+        for _ in range(random.randint(1, 2)):
+            x = random.randint(100, w - 100)
+            y = random.randint(100, h - 100)
+            page.mouse.move(x, y)
+            time.sleep(random.uniform(0.1, 0.4))
+    except:
+        pass
+
+
+def behave_like_human(page):
+    """执行一系列模拟真人操作"""
+    if random.random() < 0.7:  # 70% 概率滚动
+        human_scroll(page)
+    if random.random() < 0.4:  # 40% 概率移动鼠标
+        random_mouse_move(page)
+
+
 # ---------- 浏览器管理 ----------
 
 def get_browser_context(playwright):
@@ -46,9 +126,13 @@ def get_browser_context(playwright):
         timeout=cfg.BROWSER_TIMEOUT,
     )
 
-    # 创建一个持久化的浏览器上下文（用于更好的 Cookie 管理）
+    # 随机化 viewport 尺寸
+    vw = random.choice(cfg.VIEWPORT_WIDTHS)
+    vh = random.choice(cfg.VIEWPORT_HEIGHTS)
+    log(f"Viewport: {vw}x{vh}")
+
     context = browser.new_context(
-        viewport={"width": 1400, "height": 900},
+        viewport={"width": vw, "height": vh},
         user_agent=(
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
             "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -90,9 +174,7 @@ def wait_for_login(page, timeout_seconds=300):
     # 尝试检查页面上是否有二维码或登录表单
     try:
         page_title = page.title()
-        body_preview = page.inner_text("body")[:200] if page.query_selector("body") else "(空)"
         log(f"页面标题: {page_title}")
-        log(f"页面内容预览: {body_preview[:100]}...")
     except Exception as e:
         log(f"页面分析失败: {e}")
 
@@ -193,10 +275,17 @@ def search_jobs(page, keyword, city_code, max_pages):
     )
     log(f"搜索: [{keyword}] 城市码: {city_code}")
     safe_goto(page, url)
+    if not count_op():
+        return jobs
 
     # 如果被重定向到登录页
     if is_logged_out(page):
         log(f"  登录态已失效，跳过该搜索")
+        return jobs
+
+    # 🛡️ 检测验证码/封禁
+    if is_captcha_page(page):
+        log(f"  🛑 遇到验证码，跳过后续搜索")
         return jobs
 
     # 等待搜索结果容器加载
@@ -208,6 +297,9 @@ def search_jobs(page, keyword, city_code, max_pages):
         except:
             log(f"  [警告] 搜索结果未加载，可能无结果或被反爬")
             return jobs
+
+    # 🛡️ 模拟真人操作
+    behave_like_human(page)
 
     for page_num in range(1, max_pages + 1):
         log(f"  第 {page_num} 页...")
@@ -222,6 +314,8 @@ def search_jobs(page, keyword, city_code, max_pages):
         if page_num < max_pages:
             if not go_next_page(page, page_num):
                 log(f"  没有更多页了")
+                break
+            if not count_op():
                 break
 
     return jobs
@@ -353,8 +447,10 @@ def go_next_page(page, current_page):
                     next_btn = p
                     break
         if next_btn and next_btn.is_enabled():
+            # 🛡️ 翻页前模拟一下鼠标移动和滚动
+            behave_like_human(page)
             next_btn.click()
-            time.sleep(2)
+            time.sleep(random.uniform(2, 4))
             return True
         return False
     except:
@@ -391,12 +487,44 @@ def scrape_jd_detail(page, job_url, timeout=15):
         return ""
 
 
+# ---------- 🛡️ 关键词调度 ----------
+
+def get_filtered_keywords():
+    """
+    返回本次要搜索的关键词列表。
+    安全策略：
+    - 随机跳过部分关键词（如果 SKIP_KEYWORDS_RANDOMLY 开启）
+    - 每次运行只搜一部分，避免每次都是完全相同的搜索模式
+    """
+    keywords = cfg.SEARCH_KEYWORDS.copy()
+
+    if cfg.SKIP_KEYWORDS_RANDOMLY:
+        # 随机跳过 20%~40% 的关键词
+        skip_ratio = random.uniform(0.2, 0.4)
+        skip_count = max(1, int(len(keywords) * skip_ratio))
+        skip_indices = set(random.sample(range(len(keywords)), skip_count))
+        filtered = [k for i, k in enumerate(keywords) if i not in skip_indices]
+
+        skipped = [k for i, k in enumerate(keywords) if i in skip_indices]
+        log(f"🛡️ 本次随机跳过 {len(skipped)} 个关键词: {', '.join(skipped)}")
+        log(f"   实际搜索 {len(filtered)} 个: {', '.join(filtered)}")
+        keywords = filtered
+
+    # 随机打乱顺序（让搜索模式不固定）
+    random.shuffle(keywords)
+    return keywords
+
+
 # ---------- 主流程 ----------
 
 def main():
+    # 🛡️ 检查时段
+    if not check_time_of_day():
+        sys.exit(1)
+
     ensure_dir(cfg.OUTPUT_DIR)
 
-    # 导入 Playwright（在函数内部导入，避免无头环境报错）
+    # 导入 Playwright
     from playwright.sync_api import sync_playwright
 
     with sync_playwright() as pw:
@@ -412,10 +540,22 @@ def main():
             browser.close()
             sys.exit(1)
 
+        # 🛡️ 登录后模拟"装一会儿"再开始搜
+        idle_time = random.uniform(cfg.POST_LOGIN_IDLE_MIN, cfg.POST_LOGIN_IDLE_MAX)
+        log(f"🛡️ 登录后等待 {idle_time:.0f} 秒再开始搜索...")
+        time.sleep(idle_time)
+
+        # 🛡️ 在首页随便滚一滚，看起来像真人在浏览
+        behave_like_human(page)
+        random_delay(1, 3)
+
         # --- 第二步：执行搜索 ---
         all_jobs = []
 
-        for keyword in cfg.SEARCH_KEYWORDS:
+        # 🛡️ 用过滤后的关键词列表（随机跳过 + 打乱）
+        keywords = get_filtered_keywords()
+
+        for keyword in keywords:
             log(f"\n{'='*50}")
             log(f"搜索关键词: {keyword}")
             log(f"{'='*50}")
@@ -424,14 +564,23 @@ def main():
             jobs = search_jobs(page, keyword, cfg.CITY_CODE, cfg.MAX_PAGES)
             all_jobs.extend(jobs)
 
+            # 如果操作数已超限，提前退出
+            if _op_count >= cfg.MAX_OPS_PER_SESSION:
+                log(f"🛑 操作数已达上限，停止搜索")
+                break
+
             # 如果开启了全国搜索，额外搜一次全国范围（远程岗位）
             if cfg.SEARCH_NATIONWIDE:
                 log(f"\n  同时搜索全国范围（含远程）...")
                 nation_jobs = search_jobs(page, keyword, cfg.NATIONWIDE_CODE, cfg.MAX_PAGES)
                 all_jobs.extend(nation_jobs)
 
-            # 关键词间隔
-            random_delay(cfg.SEARCH_DELAY, cfg.SEARCH_DELAY + 2)
+                if _op_count >= cfg.MAX_OPS_PER_SESSION:
+                    log(f"🛑 操作数已达上限，停止搜索")
+                    break
+
+            # 🛡️ 切换关键词的间隔
+            random_delay(cfg.SEARCH_DELAY_MIN, cfg.SEARCH_DELAY_MAX)
 
         # --- 第三步：去重（按 url 去重） ---
         seen_urls = set()
@@ -457,9 +606,10 @@ def main():
         # 汇总
         log(f"\n{'='*50}")
         log(f"爬取完成!")
-        log(f"  关键词: {', '.join(cfg.SEARCH_KEYWORDS)}")
+        log(f"  本次搜索关键词: {', '.join(keywords)}")
         log(f"  城市: {cfg.CITY_CODE}" + (" + 全国" if cfg.SEARCH_NATIONWIDE else ""))
         log(f"  总岗位数（去重后）: {len(all_jobs)}")
+        log(f"  总操作次数: {_op_count}")
         log(f"{'='*50}")
 
         browser.close()
