@@ -531,14 +531,34 @@ def main():
         browser, context = get_browser_context(pw)
         page = context.new_page()
 
-        # --- 第一步：检查登录状态 ---
+        # --- 第一步：检查登录状态（直接打开登录稳定页，避免安全检测重定向） ---
         log("检查登录状态...")
-        safe_goto(page, "https://www.zhipin.com/web/geek/job")
-        time.sleep(3)
 
-        if not handle_login_if_needed(page, context):
-            browser.close()
-            sys.exit(1)
+        # 先直接去登录页，如果已经登录会自动跳转到首页
+        try:
+            page.goto(
+                "https://www.zhipin.com/web/user/?ka=header-login",
+                wait_until="networkidle",
+                timeout=cfg.BROWSER_TIMEOUT,
+            )
+        except Exception as e:
+            log(f"导航异常: {type(e).__name__}，检查当前页面...")
+
+        # 等页面稳定
+        time.sleep(5)
+
+        # 看一下最终到了哪个页面
+        log(f"当前页面: {page.url}")
+
+        if is_logged_out(page):
+            log("检测到未登录，请在浏览器中完成扫码登录")
+            if wait_for_login(page):
+                save_cookies(context)
+            else:
+                browser.close()
+                sys.exit(1)
+        else:
+            log("Cookie 有效，已登录！")
 
         # 🛡️ 登录后模拟"装一会儿"再开始搜
         idle_time = random.uniform(cfg.POST_LOGIN_IDLE_MIN, cfg.POST_LOGIN_IDLE_MAX)
